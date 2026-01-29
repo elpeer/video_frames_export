@@ -68,6 +68,17 @@ def open_video_unicode(video_path):
     return cap
 
 
+def get_video_fps(video_path):
+    """Get the FPS of a video file."""
+    import cv2
+    cap = open_video_unicode(video_path)
+    if cap.isOpened():
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        cap.release()
+        return fps
+    return 30  # Default
+
+
 def extract_frames_from_video(video_path, output_folder, frame_interval=1, progress_callback=None):
     """
     Extract frames from a video file.
@@ -127,24 +138,28 @@ def extract_frames_from_video(video_path, output_folder, frame_interval=1, progr
     return saved_count
 
 
-def find_mp4_files(folder_path):
-    """Find all MP4 files in the given folder."""
-    mp4_files = []
+def find_video_files(folder_path):
+    """Find all video files in the given folder."""
+    video_extensions = ('.mp4', '.avi', '.mov', '.mkv', '.wmv', '.flv')
+    video_files = []
     for file in os.listdir(folder_path):
-        if file.lower().endswith('.mp4'):
-            mp4_files.append(os.path.join(folder_path, file))
-    return mp4_files
+        if file.lower().endswith(video_extensions):
+            video_files.append(os.path.join(folder_path, file))
+    return video_files
 
 
 class VideoFrameExtractorGUI:
     def __init__(self):
         self.root = tk.Tk()
         self.root.title("Video Frame Extractor")
-        self.root.geometry("600x400")
+        self.root.geometry("650x500")
         self.root.resizable(True, True)
 
-        self.input_folder = tk.StringVar()
+        self.input_path = tk.StringVar()
         self.output_folder = tk.StringVar()
+        self.input_mode = tk.StringVar(value="folder")  # "folder" or "file"
+        self.extraction_mode = tk.StringVar(value="fps")  # "fps" or "interval"
+        self.frames_per_second = tk.DoubleVar(value=1.0)
         self.frame_interval = tk.IntVar(value=1)
         self.is_running = False
 
@@ -155,12 +170,22 @@ class VideoFrameExtractorGUI:
         main_frame = ttk.Frame(self.root, padding="10")
         main_frame.pack(fill=tk.BOTH, expand=True)
 
-        # Input folder selection
-        input_frame = ttk.LabelFrame(main_frame, text="Source Folder (MP4 files)", padding="5")
-        input_frame.pack(fill=tk.X, pady=5)
+        # Input mode selection
+        mode_frame = ttk.LabelFrame(main_frame, text="Input Mode", padding="5")
+        mode_frame.pack(fill=tk.X, pady=5)
 
-        ttk.Entry(input_frame, textvariable=self.input_folder, width=50).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
-        ttk.Button(input_frame, text="Browse...", command=self.browse_input).pack(side=tk.RIGHT)
+        ttk.Radiobutton(mode_frame, text="Folder (all videos)", variable=self.input_mode,
+                        value="folder", command=self.on_mode_change).pack(side=tk.LEFT, padx=10)
+        ttk.Radiobutton(mode_frame, text="Single Video", variable=self.input_mode,
+                        value="file", command=self.on_mode_change).pack(side=tk.LEFT, padx=10)
+
+        # Input selection
+        self.input_frame = ttk.LabelFrame(main_frame, text="Source Folder", padding="5")
+        self.input_frame.pack(fill=tk.X, pady=5)
+
+        ttk.Entry(self.input_frame, textvariable=self.input_path, width=50).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
+        self.browse_input_btn = ttk.Button(self.input_frame, text="Browse...", command=self.browse_input)
+        self.browse_input_btn.pack(side=tk.RIGHT)
 
         # Output folder selection
         output_frame = ttk.LabelFrame(main_frame, text="Output Folder (for JPG frames)", padding="5")
@@ -169,14 +194,41 @@ class VideoFrameExtractorGUI:
         ttk.Entry(output_frame, textvariable=self.output_folder, width=50).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
         ttk.Button(output_frame, text="Browse...", command=self.browse_output).pack(side=tk.RIGHT)
 
-        # Frame interval
-        interval_frame = ttk.LabelFrame(main_frame, text="Settings", padding="5")
-        interval_frame.pack(fill=tk.X, pady=5)
+        # Extraction settings
+        settings_frame = ttk.LabelFrame(main_frame, text="Extraction Settings", padding="5")
+        settings_frame.pack(fill=tk.X, pady=5)
 
-        ttk.Label(interval_frame, text="Extract every N frames:").pack(side=tk.LEFT)
-        interval_spinbox = ttk.Spinbox(interval_frame, from_=1, to=100, textvariable=self.frame_interval, width=10)
-        interval_spinbox.pack(side=tk.LEFT, padx=5)
-        ttk.Label(interval_frame, text="(1 = all frames)").pack(side=tk.LEFT)
+        # Mode selection row
+        mode_row = ttk.Frame(settings_frame)
+        mode_row.pack(fill=tk.X, pady=2)
+
+        ttk.Radiobutton(mode_row, text="Frames per second:", variable=self.extraction_mode,
+                        value="fps", command=self.on_extraction_mode_change).pack(side=tk.LEFT)
+        self.fps_spinbox = ttk.Spinbox(mode_row, from_=0.1, to=120, textvariable=self.frames_per_second,
+                                        width=8, increment=0.5)
+        self.fps_spinbox.pack(side=tk.LEFT, padx=5)
+        ttk.Label(mode_row, text="FPS").pack(side=tk.LEFT)
+
+        # Interval row
+        interval_row = ttk.Frame(settings_frame)
+        interval_row.pack(fill=tk.X, pady=2)
+
+        ttk.Radiobutton(interval_row, text="Every N frames:", variable=self.extraction_mode,
+                        value="interval", command=self.on_extraction_mode_change).pack(side=tk.LEFT)
+        self.interval_spinbox = ttk.Spinbox(interval_row, from_=1, to=1000, textvariable=self.frame_interval,
+                                             width=8, state=tk.DISABLED)
+        self.interval_spinbox.pack(side=tk.LEFT, padx=5)
+        ttk.Label(interval_row, text="(1 = all frames)").pack(side=tk.LEFT)
+
+        # Quick presets
+        preset_row = ttk.Frame(settings_frame)
+        preset_row.pack(fill=tk.X, pady=5)
+        ttk.Label(preset_row, text="Quick presets:").pack(side=tk.LEFT)
+        ttk.Button(preset_row, text="1 FPS", command=lambda: self.set_fps(1), width=6).pack(side=tk.LEFT, padx=2)
+        ttk.Button(preset_row, text="2 FPS", command=lambda: self.set_fps(2), width=6).pack(side=tk.LEFT, padx=2)
+        ttk.Button(preset_row, text="5 FPS", command=lambda: self.set_fps(5), width=6).pack(side=tk.LEFT, padx=2)
+        ttk.Button(preset_row, text="10 FPS", command=lambda: self.set_fps(10), width=6).pack(side=tk.LEFT, padx=2)
+        ttk.Button(preset_row, text="All", command=lambda: self.set_all_frames(), width=6).pack(side=tk.LEFT, padx=2)
 
         # Progress
         progress_frame = ttk.LabelFrame(main_frame, text="Progress", padding="5")
@@ -206,13 +258,51 @@ class VideoFrameExtractorGUI:
 
         ttk.Button(button_frame, text="Exit", command=self.root.quit).pack(side=tk.RIGHT, padx=5)
 
+    def set_fps(self, fps):
+        self.extraction_mode.set("fps")
+        self.frames_per_second.set(fps)
+        self.on_extraction_mode_change()
+
+    def set_all_frames(self):
+        self.extraction_mode.set("interval")
+        self.frame_interval.set(1)
+        self.on_extraction_mode_change()
+
+    def on_mode_change(self):
+        if self.input_mode.get() == "folder":
+            self.input_frame.config(text="Source Folder")
+        else:
+            self.input_frame.config(text="Source Video File")
+        self.input_path.set("")
+
+    def on_extraction_mode_change(self):
+        if self.extraction_mode.get() == "fps":
+            self.fps_spinbox.config(state=tk.NORMAL)
+            self.interval_spinbox.config(state=tk.DISABLED)
+        else:
+            self.fps_spinbox.config(state=tk.DISABLED)
+            self.interval_spinbox.config(state=tk.NORMAL)
+
     def browse_input(self):
-        folder = filedialog.askdirectory(title="Select folder containing MP4 files")
-        if folder:
-            self.input_folder.set(folder)
+        if self.input_mode.get() == "folder":
+            path = filedialog.askdirectory(title="Select folder containing video files")
+        else:
+            path = filedialog.askopenfilename(
+                title="Select video file",
+                filetypes=[
+                    ("Video files", "*.mp4 *.avi *.mov *.mkv *.wmv *.flv"),
+                    ("MP4 files", "*.mp4"),
+                    ("All files", "*.*")
+                ]
+            )
+        if path:
+            self.input_path.set(path)
             # Auto-set output folder
             if not self.output_folder.get():
-                self.output_folder.set(os.path.join(folder, "extracted_frames"))
+                if self.input_mode.get() == "folder":
+                    self.output_folder.set(os.path.join(path, "extracted_frames"))
+                else:
+                    self.output_folder.set(os.path.join(os.path.dirname(path), "extracted_frames"))
 
     def browse_output(self):
         folder = filedialog.askdirectory(title="Select output folder for frames")
@@ -225,31 +315,44 @@ class VideoFrameExtractorGUI:
         self.log_text.see(tk.END)
         self.log_text.config(state=tk.DISABLED)
 
+    def calculate_frame_interval(self, video_fps):
+        """Calculate frame interval based on extraction mode."""
+        if self.extraction_mode.get() == "fps":
+            target_fps = self.frames_per_second.get()
+            if target_fps <= 0:
+                target_fps = 1
+            interval = max(1, int(round(video_fps / target_fps)))
+            return interval
+        else:
+            return self.frame_interval.get()
+
     def start_extraction(self):
         if self.is_running:
             return
 
-        input_folder = self.input_folder.get()
+        input_path = self.input_path.get()
         output_folder = self.output_folder.get()
 
-        if not input_folder:
-            messagebox.showerror("Error", "Please select a source folder")
+        if not input_path:
+            messagebox.showerror("Error", "Please select a source")
             return
 
         if not output_folder:
             messagebox.showerror("Error", "Please select an output folder")
             return
 
-        if not os.path.exists(input_folder):
-            messagebox.showerror("Error", "Source folder does not exist")
+        if not os.path.exists(input_path):
+            messagebox.showerror("Error", "Source does not exist")
             return
 
-        # Find MP4 files
-        mp4_files = find_mp4_files(input_folder)
-
-        if not mp4_files:
-            messagebox.showwarning("Warning", "No MP4 files found in the selected folder")
-            return
+        # Get video files
+        if self.input_mode.get() == "folder":
+            video_files = find_video_files(input_path)
+            if not video_files:
+                messagebox.showwarning("Warning", "No video files found in the selected folder")
+                return
+        else:
+            video_files = [input_path]
 
         # Create output folder
         os.makedirs(output_folder, exist_ok=True)
@@ -260,26 +363,31 @@ class VideoFrameExtractorGUI:
 
         thread = threading.Thread(
             target=self.extraction_thread,
-            args=(mp4_files, output_folder, self.frame_interval.get())
+            args=(video_files, output_folder)
         )
         thread.daemon = True
         thread.start()
 
-    def extraction_thread(self, mp4_files, output_folder, frame_interval):
-        total_videos = len(mp4_files)
+    def extraction_thread(self, video_files, output_folder):
+        total_videos = len(video_files)
 
-        self.root.after(0, lambda: self.log(f"Found {total_videos} MP4 files"))
+        self.root.after(0, lambda: self.log(f"Found {total_videos} video file(s)"))
 
-        for i, video_path in enumerate(mp4_files):
+        for i, video_path in enumerate(video_files):
             video_name = os.path.basename(video_path)
-            self.root.after(0, lambda v=video_name, n=i+1, t=total_videos:
+
+            # Get video FPS and calculate interval
+            video_fps = get_video_fps(video_path)
+            frame_interval = self.calculate_frame_interval(video_fps)
+
+            self.root.after(0, lambda v=video_name, n=i+1, t=total_videos, fps=video_fps, interval=frame_interval:
                 self.status_label.config(text=f"Processing: {v} ({n}/{t})"))
-            self.root.after(0, lambda v=video_name: self.log(f"Processing: {v}"))
+            self.root.after(0, lambda v=video_name, fps=video_fps, interval=frame_interval:
+                self.log(f"Processing: {v} (Video FPS: {fps:.1f}, extracting every {interval} frames)"))
 
             try:
                 def progress_callback(current, total):
                     if total > 0:
-                        video_progress = (current / total) * 100
                         overall_progress = ((i + current/total) / total_videos) * 100
                         self.root.after(0, lambda p=overall_progress: self.progress_var.set(p))
 
