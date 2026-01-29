@@ -9,6 +9,7 @@ import sys
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 import threading
+import numpy as np
 
 
 def check_dependencies():
@@ -18,6 +19,53 @@ def check_dependencies():
         return True
     except ImportError:
         return False
+
+
+def save_image_unicode(path, image, quality=95):
+    """Save image to a path that may contain Unicode characters (like Hebrew)."""
+    import cv2
+    # Encode image to JPG in memory
+    encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), quality]
+    result, encoded_img = cv2.imencode('.jpg', image, encode_param)
+    if result:
+        # Write using Python's open() which handles Unicode paths
+        with open(path, 'wb') as f:
+            f.write(encoded_img.tobytes())
+        return True
+    return False
+
+
+def open_video_unicode(video_path):
+    """Open video file with Unicode path support for Windows."""
+    import cv2
+
+    # Try opening directly first
+    cap = cv2.VideoCapture(video_path)
+    if cap.isOpened():
+        return cap
+
+    # If failed, try with Windows short path
+    if sys.platform == 'win32':
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            GetShortPathNameW = ctypes.windll.kernel32.GetShortPathNameW
+            GetShortPathNameW.argtypes = [wintypes.LPCWSTR, wintypes.LPWSTR, wintypes.DWORD]
+            GetShortPathNameW.restype = wintypes.DWORD
+
+            buffer = ctypes.create_unicode_buffer(500)
+            GetShortPathNameW(video_path, buffer, 500)
+            short_path = buffer.value
+
+            if short_path:
+                cap = cv2.VideoCapture(short_path)
+                if cap.isOpened():
+                    return cap
+        except:
+            pass
+
+    return cap
 
 
 def extract_frames_from_video(video_path, output_folder, frame_interval=1, progress_callback=None):
@@ -41,7 +89,8 @@ def extract_frames_from_video(video_path, output_folder, frame_interval=1, progr
     video_output_folder = os.path.join(output_folder, video_name)
     os.makedirs(video_output_folder, exist_ok=True)
 
-    cap = cv2.VideoCapture(video_path)
+    # Open video with Unicode support
+    cap = open_video_unicode(video_path)
 
     if not cap.isOpened():
         raise ValueError(f"Could not open video: {video_path}")
@@ -61,8 +110,9 @@ def extract_frames_from_video(video_path, output_folder, frame_interval=1, progr
             frame_filename = f"{video_name}_frame_{frame_count:05d}.jpg"
             frame_path = os.path.join(video_output_folder, frame_filename)
 
-            cv2.imwrite(frame_path, frame, [cv2.IMWRITE_JPEG_QUALITY, 95])
-            saved_count += 1
+            # Use Unicode-safe save function
+            if save_image_unicode(frame_path, frame):
+                saved_count += 1
 
         frame_count += 1
 
