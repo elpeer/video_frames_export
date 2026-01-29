@@ -224,11 +224,9 @@ class VideoFrameExtractorGUI:
         preset_row = ttk.Frame(settings_frame)
         preset_row.pack(fill=tk.X, pady=5)
         ttk.Label(preset_row, text="Quick presets:").pack(side=tk.LEFT)
-        ttk.Button(preset_row, text="1 FPS", command=lambda: self.set_fps(1), width=6).pack(side=tk.LEFT, padx=2)
-        ttk.Button(preset_row, text="2 FPS", command=lambda: self.set_fps(2), width=6).pack(side=tk.LEFT, padx=2)
-        ttk.Button(preset_row, text="5 FPS", command=lambda: self.set_fps(5), width=6).pack(side=tk.LEFT, padx=2)
-        ttk.Button(preset_row, text="10 FPS", command=lambda: self.set_fps(10), width=6).pack(side=tk.LEFT, padx=2)
-        ttk.Button(preset_row, text="All", command=lambda: self.set_all_frames(), width=6).pack(side=tk.LEFT, padx=2)
+        for fps in [5, 10, 20, 30, 40, 60]:
+            ttk.Button(preset_row, text=f"{fps}", command=lambda f=fps: self.set_fps(f), width=4).pack(side=tk.LEFT, padx=1)
+        ttk.Button(preset_row, text="All", command=lambda: self.set_all_frames(), width=4).pack(side=tk.LEFT, padx=1)
 
         # Progress
         progress_frame = ttk.LabelFrame(main_frame, text="Progress", padding="5")
