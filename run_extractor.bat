@@ -16,9 +16,10 @@ REM Check if opencv-python is installed, if not install it
 python -c "import cv2" >nul 2>&1
 if %errorlevel% neq 0 (
     echo Installing opencv-python...
-    pip install opencv-python
+    python -m pip install opencv-python
     if %errorlevel% neq 0 (
         echo Error: Failed to install opencv-python.
+        echo Try running: python -m pip install opencv-python
         pause
         exit /b 1
     )
